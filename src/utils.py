@@ -6,7 +6,7 @@ import copy
 import torch
 from torchvision import datasets, transforms
 
-### TO-DO: Add NLP datasets.
+### TO-DO: Add NLP dataset imports.
 from sampling import mnist_iid, mnist_noniid, mnist_noniid_unequal
 from sampling import cifar_iid, cifar_noniid
 
@@ -16,6 +16,7 @@ def get_dataset(args):
     the keys are the user index and the values are the corresponding data for
     each of those users.
     """
+    ### TO-DO: Add NLP dataset.
 
     if args.dataset == 'cifar':
         data_dir = '../data/cifar/'
