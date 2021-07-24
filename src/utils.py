@@ -5,6 +5,8 @@
 import copy
 import torch
 from torchvision import datasets, transforms
+
+### Add NLP datasets.
 from sampling import mnist_iid, mnist_noniid, mnist_noniid_unequal
 from sampling import cifar_iid, cifar_noniid
 
@@ -73,8 +75,7 @@ def get_dataset(args):
 
 
 def average_weights(w):
-    """
-    Returns the average of the weights.
+    """Returns the average of the weights.
     """
     w_avg = copy.deepcopy(w[0])
     for key in w_avg.keys():
@@ -85,6 +86,8 @@ def average_weights(w):
 
 
 def exp_details(args):
+    """Print only function that displays experiment details.
+    """
     print('\nExperimental details:')
     print(f'    Model     : {args.model}')
     print(f'    Optimizer : {args.optimizer}')
