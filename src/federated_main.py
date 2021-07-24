@@ -15,7 +15,9 @@ from tensorboardX import SummaryWriter
 
 from options import args_parser
 from update import LocalUpdate, test_inference
+### TO-DO: Add NLP models and dataset.
 from models import MLP, CNNMnist, CNNFashion_Mnist, CNNCifar
+
 from utils import get_dataset, average_weights, exp_details
 
 
