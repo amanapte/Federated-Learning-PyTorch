@@ -6,6 +6,7 @@
 import numpy as np
 from torchvision import datasets, transforms
 
+### TO-DO: Add NLP datasets (i.i.d & non-i.i.d).
 
 def mnist_iid(dataset, num_users):
     """
