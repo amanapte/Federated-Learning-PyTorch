@@ -11,14 +11,13 @@ import numpy as np
 from tqdm import tqdm
 
 import torch
+
 from tensorboardX import SummaryWriter
 
 from options import args_parser
 from update import LocalUpdate, test_inference
-### TO-DO: Add NLP models and dataset.
-from models import MLP, CNNMnist, CNNFashion_Mnist, CNNCifar
-
-from utils import get_dataset, average_weights, exp_details
+from models import get_model
+from utils import get_dataset, average_weights, exp_details, num_batches_per_epoch
 
 
 if __name__ == '__main__':
@@ -35,30 +34,25 @@ if __name__ == '__main__':
         torch.cuda.set_device(args.gpu_id)
     device = 'cuda' if args.gpu else 'cpu'
 
-    # load dataset and user groups
-    train_dataset, test_dataset, user_groups = get_dataset(args)
+    if args.task == 'nlp':
+        ### Start of natural language classification model training. {{{
+        global_model, tokenizer = get_model(args)
+        # Load tokenized dataset and user groups
+        train_dataset, test_dataset, user_groups = get_dataset(args, tokenizer)
 
-    # BUILD MODEL
-    if args.model == 'cnn':
-        # Convolutional neural netork
-        if args.dataset == 'mnist':
-            global_model = CNNMnist(args=args)
-        elif args.dataset == 'fmnist':
-            global_model = CNNFashion_Mnist(args=args)
-        elif args.dataset == 'cifar':
-            global_model = CNNCifar(args=args)
+    elif args.task == 'cv':
+        # load dataset and user groups
+        train_dataset, test_dataset, user_groups = get_dataset(args)
 
-    elif args.model == 'mlp':
-        # Multi-layer preceptron
-        img_size = train_dataset[0][0].shape
-        len_in = 1
-        for x in img_size:
-            len_in *= x
-            global_model = MLP(dim_in=len_in, dim_hidden=64,
-                               dim_out=args.num_classes)
+        global_model = get_model(args=args, img_size=train_dataset[0][0].shape)
     else:
-        exit('Error: unrecognized model')
+        raise NotImplementedError(
+            f"""Unrecognised task {args.task}.
+            Options are: `nlp` and `cv`.
+            """
+        )
 
+    ### Start of Federated learning. {{{
     # Set the model to train and send it to device.
     global_model.to(device)
     global_model.train()
@@ -76,17 +70,21 @@ if __name__ == '__main__':
 
     for epoch in tqdm(range(args.epochs)):
         local_weights, local_losses = [], []
-        print(f'\n | Global Training Round : {epoch+1} |\n')
+        print(f'\n | Global Training Round : {epoch + 1} |\n')
 
         global_model.train()
         m = max(int(args.frac * args.num_users), 1)
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
 
+        assert len(idxs_users) == args.num_users
+
         for idx in idxs_users:
-            local_model = LocalUpdate(args=args, dataset=train_dataset,
-                                      idxs=user_groups[idx], logger=logger)
-            w, loss = local_model.update_weights(
-                model=copy.deepcopy(global_model), global_round=epoch)
+            local_model = LocalUpdate(args=args,
+                                      dataset=train_dataset,
+                                      idxs=user_groups[idx],
+                                      logger=logger)
+            w, loss = local_model.update_weights(model=copy.deepcopy(global_model),
+                                                 global_round=epoch)
             local_weights.append(copy.deepcopy(w))
             local_losses.append(copy.deepcopy(loss))
 
@@ -102,19 +100,21 @@ if __name__ == '__main__':
         # Calculate avg training accuracy over all users at every epoch
         list_acc, list_loss = [], []
         global_model.eval()
-        for c in range(args.num_users):
-            local_model = LocalUpdate(args=args, dataset=train_dataset,
-                                      idxs=user_groups[idx], logger=logger)
+        for idx in range(args.num_users):
+            local_model = LocalUpdate(args=args,
+                                      dataset=train_dataset,
+                                      idxs=user_groups[idx],
+                                      logger=logger)
             acc, loss = local_model.inference(model=global_model)
             list_acc.append(acc)
             list_loss.append(loss)
-        train_accuracy.append(sum(list_acc)/len(list_acc))
+        train_accuracy.append(sum(list_acc) / len(list_acc))
 
         # print global training loss after every 'i' rounds
-        if (epoch+1) % print_every == 0:
-            print(f' \nAvg Training Stats after {epoch+1} global rounds:')
+        if (epoch + 1) % print_every == 0:
+            print(f' \nAvg Training Stats after {epoch + 1} global rounds:')
             print(f'Training Loss : {np.mean(np.array(train_loss))}')
-            print('Train Accuracy: {:.2f}% \n'.format(100*train_accuracy[-1]))
+            print('Train Accuracy: {:.2f}% \n'.format(100 * train_accuracy[-1]))
 
     # Test inference after completion of training
     test_acc, test_loss = test_inference(args, global_model, test_dataset)
@@ -122,6 +122,7 @@ if __name__ == '__main__':
     print(f' \n Results after {args.epochs} global rounds of training:')
     print("|---- Avg Train Accuracy: {:.2f}%".format(100*train_accuracy[-1]))
     print("|---- Test Accuracy: {:.2f}%".format(100*test_acc))
+    ### }}} End of Federated learning.
 
     # Saving the objects train_loss and train_accuracy:
     file_name = '../save/objects/{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}].pkl'.\
