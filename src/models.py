@@ -2,8 +2,82 @@
 # -*- coding: utf-8 -*-
 # Python version: 3.6
 
-from torch import nn
 import torch.nn.functional as F
+
+from torch import nn, optim
+from transformers import AutoModelForSequenceClassification, AutoConfig, AutoTokenizer
+
+# Define a common max sequence length that can be imported across modules.
+MAX_SEQUENCE_LENGTH = 512
+
+# Define a model name: model full name dict.
+nlp_model_name = {
+    "bert": {
+        "model_name": "bert-base-uncased",
+    },
+    "roberta": {
+        "model_name": "roberta-base",
+    },
+    "distilbert": {
+        "model_name": "distilbert-base-uncased",
+    },
+}
+
+def get_model(args, img_size=None, nlp_model_dict=nlp_model_name):
+    if args.task == 'nlp':
+        if args.model in nlp_model_dict.keys():
+            model_name = nlp_model_dict[args.model]["model_name"]
+            model_config = AutoConfig.from_pretrained(model_name, num_labels=args.num_classes)
+            global_model = AutoModelForSequenceClassification.from_pretrained(model_name, config=model_config)
+            tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
+        else:
+            raise NotImplementedError(
+                f"""Unsupported model {args.model} passed.
+                Options: {nlp_model_dict.keys()}.
+                """
+            )
+        return global_model, tokenizer
+
+    elif args.task == 'cv':
+        # BUILD MODEL
+        if args.model == 'cnn':
+            # Convolutional neural network
+            if args.dataset == 'mnist':
+                global_model = CNNMnist(args=args)
+            elif args.dataset == 'fmnist':
+                global_model = CNNFashion_Mnist(args=args)
+            elif args.dataset == 'cifar':
+                global_model = CNNCifar(args=args)
+
+        elif args.model == 'mlp':
+            # Multi-layer perceptron
+            img_size = img_size
+            len_in = 1
+            for x in img_size:
+                len_in *= x
+                global_model = MLP(dim_in=len_in, dim_hidden=64,
+                                   dim_out=args.num_classes)
+        return global_model
+
+    else:
+        raise NotImplementedError(
+            f"""Unrecognised task {args.task}.
+            Options are: `nlp` and `cv`.
+            """
+        )
+
+
+def get_optimizer(args, model, momentum=0.5, weight_decay=1e-4):
+    # Set optimizer
+    if args.optimizer == 'sgd':
+        optimizer = optim.SGD(model.parameters(),
+                              lr=args.lr,
+                              momentum=momentum)
+    elif args.optimizer == 'adam':
+        optimizer = optim.Adam(model.parameters(),
+                               lr=args.lr,
+                               weight_decay=weight_decay)
+    return optimizer
 
 
 class MLP(nn.Module):
@@ -118,90 +192,3 @@ class modelC(nn.Module):
         pool_out.squeeze_(-1)
         pool_out.squeeze_(-1)
         return pool_out
-
-### TO-DO: Validate NLP model classes.
-
-class TextClassificationModel(nn.Module):
-
-    def __init__(self, vocab_size, embed_dim, num_class):
-        super(TextClassificationModel, self).__init__()
-        self.embedding = nn.EmbeddingBag(vocab_size, embed_dim, sparse=True)
-        self.fc = nn.Linear(embed_dim, num_class)
-        self.init_weights()
-
-    def init_weights(self):
-        initrange = 0.5
-        self.embedding.weight.data.uniform_(-initrange, initrange)
-        self.fc.weight.data.uniform_(-initrange, initrange)
-        self.fc.bias.data.zero_()
-
-    def forward(self, text, offsets):
-        embedded = self.embedding(text, offsets)
-        return self.fc(embedded)
-    
-class LSTMClassifier(nn.Module):
-    
-    #define all the layers used in model
-    def __init__(self, vocab_size, embedding_dim, hidden_dim, output_dim, n_layers, 
-                 bidirectional, dropout):
-        
-        #Constructor
-        super().__init__()          
-        
-        #embedding layer
-        self.embedding = nn.Embedding(vocab_size, embedding_dim)
-        
-        #lstm layer
-        self.lstm = nn.LSTM(embedding_dim, 
-                           hidden_dim, 
-                           num_layers=n_layers, 
-                           bidirectional=bidirectional, 
-                           dropout=dropout,
-                           batch_first=True)
-        
-        #dense layer
-        self.fc = nn.Linear(hidden_dim * 2, output_dim)
-        
-        #activation function
-        self.act = nn.Sigmoid()
-        
-    def forward(self, text, text_lengths):
-        
-        #text = [batch size,sent_length]
-        embedded = self.embedding(text)
-        #embedded = [batch size, sent_len, emb dim]
-      
-        #packed sequence
-        packed_embedded = nn.utils.rnn.pack_padded_sequence(embedded, text_lengths,batch_first=True)
-        
-        packed_output, (hidden, cell) = self.lstm(packed_embedded)
-        #hidden = [batch size, num layers * num directions,hid dim]
-        #cell = [batch size, num layers * num directions,hid dim]
-        
-        #concat the final forward and backward hidden state
-        hidden = torch.cat((hidden[-2,:,:], hidden[-1,:,:]), dim = 1)
-                
-        #hidden = [batch size, hid dim * num directions]
-        dense_outputs=self.fc(hidden)
-
-        #Final activation function
-        outputs=self.act(dense_outputs)
-        
-        return outputs
-    
-class TextSentiment(nn.Module):
-    def __init__(self, vocab_size, embed_dim, num_class):
-        super().__init__()
-        self.embedding = nn.EmbeddingBag(vocab_size, embed_dim, sparse=True)
-        self.fc = nn.Linear(embed_dim, num_class)
-        self.init_weights()
-
-    def init_weights(self):
-        initrange = 0.5
-        self.embedding.weight.data.uniform_(-initrange, initrange)
-        self.fc.weight.data.uniform_(-initrange, initrange)
-        self.fc.bias.data.zero_()
-
-    def forward(self, text, offsets):
-        embedded = self.embedding(text, offsets)
-        return self.fc(embedded)
