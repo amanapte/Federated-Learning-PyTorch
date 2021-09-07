@@ -6,7 +6,50 @@
 import numpy as np
 from torchvision import datasets, transforms
 
-### TO-DO: Add NLP dataset functions (i.i.d & non-i.i.d).
+def ade_iid(dataset, num_users):
+    """
+    Sample I.I.D. client data from Ade_corpus dataset
+    :param dataset:
+    :param num_users:
+    :return: dict of text index
+    """
+    num_items = int(len(dataset)/num_users)
+    dict_users, all_idxs = {}, [i for i in range(len(dataset))]
+    for i in range(num_users):
+        dict_users[i] = set(np.random.choice(all_idxs,
+                                             num_items,
+                                             replace=False))
+        all_idxs = list(set(all_idxs) - dict_users[i])
+    return dict_users
+
+def ade_noniid(dataset, num_users):
+    """
+    Sample non-I.I.D client data from Ade_corpus dataset
+    :param dataset:
+    :param num_users:
+    :return:
+    """
+    num_items = len(dataset)
+    num_text = 100
+    num_shards = int(num_items/num_text)
+    idx_shard = [i for i in range(num_shards)]
+    dict_users = {i: np.array([]) for i in range(num_users)}
+    idxs = np.arange(num_shards*num_text)
+    labels = dataset.train_labels.numpy()
+
+    # sort labels
+    idxs_labels = np.vstack((idxs, labels))
+    idxs_labels = idxs_labels[:, idxs_labels[1, :].argsort()]
+    idxs = idxs_labels[0, :]
+
+    # divide and assign 2 shards/client
+    for i in range(num_users):
+        rand_set = set(np.random.choice(idx_shard, 2, replace=False))
+        idx_shard = list(set(idx_shard) - rand_set)
+        for rand in rand_set:
+            dict_users[i] = np.concatenate(
+                (dict_users[i], idxs[rand*num_text:(rand+1)*num_text]), axis=0)
+    return dict_users
 
 def mnist_iid(dataset, num_users):
     """
@@ -60,7 +103,7 @@ def mnist_noniid_unequal(dataset, num_users):
     :param dataset:
     :param num_users:
     :returns a dict of clients with each clients assigned certain
-    number of training imgs
+    number of training images
     """
     # 60,000 training imgs --> 50 imgs/shard X 1200 shards
     num_shards, num_imgs = 1200, 50
