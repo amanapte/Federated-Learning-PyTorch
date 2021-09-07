@@ -67,12 +67,12 @@ def get_model(args, img_size=None, nlp_model_dict=nlp_model_name):
         )
 
 
-def get_optimizer(args, model, momentum=0.5, weight_decay=1e-4):
+def get_optimizer(args, model, weight_decay=1e-4):
     # Set optimizer
     if args.optimizer == 'sgd':
         optimizer = optim.SGD(model.parameters(),
                               lr=args.lr,
-                              momentum=momentum)
+                              momentum=args.momentum)
     elif args.optimizer == 'adam':
         optimizer = optim.Adam(model.parameters(),
                                lr=args.lr,
