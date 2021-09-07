@@ -4,7 +4,6 @@
 
 import argparse
 
-### TO-DO: Add relevant arguments after development.
 
 def args_parser():
     parser = argparse.ArgumentParser()
@@ -14,11 +13,13 @@ def args_parser():
                         help="number of rounds of training")
     parser.add_argument('--num_users', type=int, default=100,
                         help="number of users: K")
+    parser.add_argument('--test-frac', type=float, default=0.1,
+                        help='the fraction of data to go into test split.')
     parser.add_argument('--frac', type=float, default=0.1,
                         help='the fraction of clients: C')
     parser.add_argument('--local_ep', type=int, default=10,
                         help="the number of local epochs: E")
-    parser.add_argument('--local_bs', type=int, default=10,
+    parser.add_argument('--local_bs', type=int, default=8,
                         help="local batch size: B")
     parser.add_argument('--lr', type=float, default=0.01,
                         help='learning rate')
@@ -26,6 +27,7 @@ def args_parser():
                         help='SGD momentum (default: 0.5)')
 
     # model arguments
+    parser.add_argument('--task', type=str, default='nlp', help='task name')
     parser.add_argument('--model', type=str, default='mlp', help='model name')
     parser.add_argument('--kernel_num', type=int, default=9,
                         help='number of each kind of kernel')
