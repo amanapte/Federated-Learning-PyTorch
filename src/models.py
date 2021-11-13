@@ -2,8 +2,129 @@
 # -*- coding: utf-8 -*-
 # Python version: 3.6
 
-from torch import nn
-import torch.nn.functional as F
+import sys
+import os
+
+import torch.nn.functional as nn_fnx
+
+from torch import nn, optim
+from os import path, getcwd, makedirs
+
+sys.path.insert(0, path.join(getcwd(), "..", ".."))
+
+# Define a common max sequence length that can be imported across modules.
+MAX_SEQUENCE_LENGTH = 250
+
+# Define a model name: model full name dict.
+NLP_MODEL_CONFIG = {
+    "tinybert": {
+        "model_name": "prajjwal1/bert-tiny",
+        "lr": 2e-5,
+    },
+    "bert": {
+        "model_name": "bert-base-uncased",
+        "lr": 2e-5,
+    },
+    "roberta": {
+        "model_name": "roberta-base",
+        "lr": 2e-5,
+    },
+    "distilbert": {
+        "model_name": "distilbert-base-uncased",
+        "lr": 2e-5,
+    },
+}
+
+def get_model(args, img_size=None, nlp_model_dict=NLP_MODEL_CONFIG):
+    """Return model (and tokenizer if task is NLP) based on the provided args.
+    For task CV optional argument to return specific sized images.
+    Args:
+        args: Parsed input arguments.
+        img_size: Return images resized to specified size.
+            Defaults to None.
+        nlp_model_dict: Dictionary containing model name(key) and initial_model_checkpoint name(value).
+            Defaults to NLP_MODEL_NAME.
+    Raises:
+        NotImplementedError: When unimplemented configuration is parsed.
+    Returns:
+        if args.task is 'nlp' returns global_model and tokenizer.
+        if args.task is 'cv' returns global_model.
+    """
+    if args.task == 'nlp':
+        if args.model in nlp_model_dict.keys():
+            model_name = nlp_model_dict[args.model]["model_name"]
+            from transformers import AutoModelForSequenceClassification, AutoConfig, AutoTokenizer
+            model_config = AutoConfig.from_pretrained(model_name, num_labels=args.num_classes)
+            global_model = AutoModelForSequenceClassification.from_pretrained(model_name, config=model_config)
+            tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
+        else:
+            raise NotImplementedError(
+                f"""Unsupported model {args.model} passed.
+                Options: {nlp_model_dict.keys()}.
+                """
+            )
+        return global_model, tokenizer
+
+    elif args.task == 'cv':
+        # Build model.
+        if args.model == 'cnn':
+            # Convolutional neural network
+            if args.dataset == 'mnist':
+                global_model = CNNMnist(args=args)
+            elif args.dataset == 'fmnist':
+                global_model = CNNFashion_Mnist(args=args)
+            elif args.dataset == 'cifar':
+                global_model = VGG(vgg_name="VGG11")
+            else:
+                raise NotImplementedError(
+                    f"""Unrecognised dataset {args.dataset}.
+                    Options are: `mnist`, 'fmnist' and `cifar`.
+                    """
+                )
+
+        elif args.model == 'mlp':
+            # Multi-layer perceptron
+            img_size = img_size
+            len_in = 1
+            for x in img_size:
+                len_in *= x
+                global_model = MLP(dim_in=len_in, dim_hidden=64,
+                                   dim_out=args.num_classes)
+        else:
+            raise NotImplementedError(
+                f"""Unrecognised model {args.model}.
+                Options are: `cnn` and `mlp`.
+                """
+            )
+        return global_model
+
+    else:
+        raise NotImplementedError(
+            f"""Unrecognised task {args.task}.
+            Options are: `nlp` and `cv`.
+            """
+        )
+
+
+def get_optimizer(args, model, weight_decay=1e-4):
+    """Return optimizer using parsed parameters.
+    Args:
+        args: Parsed input arguments.
+        model: Model who's parameters are used to set-up optimizer.
+        weight_decay: Weight decay parameter for optimizer.
+    Returns:
+        optimizer: Model training optimizer.
+    """
+    # Set optimizer
+    if args.optimizer == 'sgd':
+        optimizer = optim.SGD(model.parameters(),
+                              lr=args.lr,
+                              momentum=args.momentum)
+    elif args.optimizer == 'adam':
+        optimizer = optim.Adam(model.parameters(),
+                               lr=args.lr,
+                               weight_decay=weight_decay)
+    return optimizer
 
 
 class MLP(nn.Module):
@@ -34,13 +155,13 @@ class CNNMnist(nn.Module):
         self.fc2 = nn.Linear(50, args.num_classes)
 
     def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
+        x = nn_fnx.relu(nn_fnx.max_pool2d(self.conv1(x), 2))
+        x = nn_fnx.relu(nn_fnx.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
         x = x.view(-1, x.shape[1]*x.shape[2]*x.shape[3])
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
+        x = nn_fnx.relu(self.fc1(x))
+        x = nn_fnx.dropout(x, training=self.training)
         x = self.fc2(x)
-        return F.log_softmax(x, dim=1)
+        return nn_fnx.log_softmax(x, dim=1)
 
 
 class CNNFashion_Mnist(nn.Module):
@@ -77,13 +198,48 @@ class CNNCifar(nn.Module):
         self.fc3 = nn.Linear(84, args.num_classes)
 
     def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))
+        x = self.pool(nn_fnx.relu(self.conv1(x)))
+        x = self.pool(nn_fnx.relu(self.conv2(x)))
         x = x.view(-1, 16 * 5 * 5)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
+        x = nn_fnx.relu(self.fc1(x))
+        x = nn_fnx.relu(self.fc2(x))
         x = self.fc3(x)
-        return F.log_softmax(x, dim=1)
+        return nn_fnx.log_softmax(x, dim=1)
+
+
+vgg_cfg = {
+    'VGG11': [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
+    'VGG13': [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
+    'VGG16': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M'],
+    'VGG19': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512, 'M'],
+}
+class VGG(nn.Module):
+    def __init__(self, vgg_name):
+        super(VGG, self).__init__()
+        self.features = self._make_layers(vgg_cfg[vgg_name])
+        self.classifier = nn.Linear(512, 10)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)
+        x = self.classifier(x)
+        #x =
+        return nn_fnx.log_softmax(x, dim=1)
+
+    def _make_layers(self, cfg):
+        layers = []
+        in_channels = 3
+        for x in cfg:
+            if x == 'M':
+                layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
+            else:
+                layers += [nn.Conv2d(in_channels, x, kernel_size=3, padding=1),
+                           nn.BatchNorm2d(x),
+                           nn.ReLU(inplace=True)]
+                in_channels = x
+        layers += [nn.AvgPool2d(kernel_size=1, stride=1)]
+        return nn.Sequential(*layers)
+
 
 class modelC(nn.Module):
     def __init__(self, input_size, n_classes=10, **kwargs):
@@ -101,107 +257,20 @@ class modelC(nn.Module):
 
 
     def forward(self, x):
-        x_drop = F.dropout(x, .2)
-        conv1_out = F.relu(self.conv1(x_drop))
-        conv2_out = F.relu(self.conv2(conv1_out))
-        conv3_out = F.relu(self.conv3(conv2_out))
-        conv3_out_drop = F.dropout(conv3_out, .5)
-        conv4_out = F.relu(self.conv4(conv3_out_drop))
-        conv5_out = F.relu(self.conv5(conv4_out))
-        conv6_out = F.relu(self.conv6(conv5_out))
-        conv6_out_drop = F.dropout(conv6_out, .5)
-        conv7_out = F.relu(self.conv7(conv6_out_drop))
-        conv8_out = F.relu(self.conv8(conv7_out))
+        x_drop = nn_fnx.dropout(x, .2)
+        conv1_out = nn_fnx.relu(self.conv1(x_drop))
+        conv2_out = nn_fnx.relu(self.conv2(conv1_out))
+        conv3_out = nn_fnx.relu(self.conv3(conv2_out))
+        conv3_out_drop = nn_fnx.dropout(conv3_out, .5)
+        conv4_out = nn_fnx.relu(self.conv4(conv3_out_drop))
+        conv5_out = nn_fnx.relu(self.conv5(conv4_out))
+        conv6_out = nn_fnx.relu(self.conv6(conv5_out))
+        conv6_out_drop = nn_fnx.dropout(conv6_out, .5)
+        conv7_out = nn_fnx.relu(self.conv7(conv6_out_drop))
+        conv8_out = nn_fnx.relu(self.conv8(conv7_out))
 
-        class_out = F.relu(self.class_conv(conv8_out))
-        pool_out = F.adaptive_avg_pool2d(class_out, 1)
+        class_out = nn_fnx.relu(self.class_conv(conv8_out))
+        pool_out = nn_fnx.adaptive_avg_pool2d(class_out, 1)
         pool_out.squeeze_(-1)
         pool_out.squeeze_(-1)
         return pool_out
-
-### TO-DO: Validate NLP model classes.
-
-class TextClassificationModel(nn.Module):
-
-    def __init__(self, vocab_size, embed_dim, num_class):
-        super(TextClassificationModel, self).__init__()
-        self.embedding = nn.EmbeddingBag(vocab_size, embed_dim, sparse=True)
-        self.fc = nn.Linear(embed_dim, num_class)
-        self.init_weights()
-
-    def init_weights(self):
-        initrange = 0.5
-        self.embedding.weight.data.uniform_(-initrange, initrange)
-        self.fc.weight.data.uniform_(-initrange, initrange)
-        self.fc.bias.data.zero_()
-
-    def forward(self, text, offsets):
-        embedded = self.embedding(text, offsets)
-        return self.fc(embedded)
-    
-class LSTMClassifier(nn.Module):
-    
-    #define all the layers used in model
-    def __init__(self, vocab_size, embedding_dim, hidden_dim, output_dim, n_layers, 
-                 bidirectional, dropout):
-        
-        #Constructor
-        super().__init__()          
-        
-        #embedding layer
-        self.embedding = nn.Embedding(vocab_size, embedding_dim)
-        
-        #lstm layer
-        self.lstm = nn.LSTM(embedding_dim, 
-                           hidden_dim, 
-                           num_layers=n_layers, 
-                           bidirectional=bidirectional, 
-                           dropout=dropout,
-                           batch_first=True)
-        
-        #dense layer
-        self.fc = nn.Linear(hidden_dim * 2, output_dim)
-        
-        #activation function
-        self.act = nn.Sigmoid()
-        
-    def forward(self, text, text_lengths):
-        
-        #text = [batch size,sent_length]
-        embedded = self.embedding(text)
-        #embedded = [batch size, sent_len, emb dim]
-      
-        #packed sequence
-        packed_embedded = nn.utils.rnn.pack_padded_sequence(embedded, text_lengths,batch_first=True)
-        
-        packed_output, (hidden, cell) = self.lstm(packed_embedded)
-        #hidden = [batch size, num layers * num directions,hid dim]
-        #cell = [batch size, num layers * num directions,hid dim]
-        
-        #concat the final forward and backward hidden state
-        hidden = torch.cat((hidden[-2,:,:], hidden[-1,:,:]), dim = 1)
-                
-        #hidden = [batch size, hid dim * num directions]
-        dense_outputs=self.fc(hidden)
-
-        #Final activation function
-        outputs=self.act(dense_outputs)
-        
-        return outputs
-    
-class TextSentiment(nn.Module):
-    def __init__(self, vocab_size, embed_dim, num_class):
-        super().__init__()
-        self.embedding = nn.EmbeddingBag(vocab_size, embed_dim, sparse=True)
-        self.fc = nn.Linear(embed_dim, num_class)
-        self.init_weights()
-
-    def init_weights(self):
-        initrange = 0.5
-        self.embedding.weight.data.uniform_(-initrange, initrange)
-        self.fc.weight.data.uniform_(-initrange, initrange)
-        self.fc.bias.data.zero_()
-
-    def forward(self, text, offsets):
-        embedded = self.embedding(text, offsets)
-        return self.fc(embedded)
